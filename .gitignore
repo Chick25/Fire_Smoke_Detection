@@ -1,0 +1,14 @@
+# Bỏ qua các file ảnh tĩnh
+*.jpg
+*.jpeg
+*.png
+*.webp
+
+# Bỏ qua các file video thử nghiệm
+*.mp4
+*.avi
+*.mkv
+*.mov
+
+# Bỏ qua file nén model nếu còn sót lại
+*.zip
