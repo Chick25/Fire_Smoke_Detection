@@ -10,7 +10,7 @@ model = YOLO(MODEL_PATH)
 # 2. Nguồn camera giám sát: 
 # Số 0 đại diện cho Webcam máy tính/laptop. 
 # Nếu lắp camera IP trong khu dân cư, bạn thay số 0 bằng chuỗi link RTSP: "rtsp://username:password@IP_Address:Port/h264"
-VIDEO_SOURCE = 0 
+VIDEO_SOURCE = r"E:\Xử lí ảnh số\video\7883830674410.mp4"
 cap = cv2.VideoCapture(VIDEO_SOURCE)
 
 # 3. Các tham số cấu hình bộ đệm logic (Chống báo động giả do đèn xe, hoàng hôn)

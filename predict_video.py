@@ -8,7 +8,7 @@ model = YOLO(MODEL_PATH)
 
 # 2. Đường dẫn tới file video thử nghiệm của bạn (thay tên file video thực tế vào đây)
 # Ví dụ bạn có file video đặt tên là 'test_chay.mp4'
-VIDEO_PATH = "vid1.mp4" 
+VIDEO_PATH = r"E:\Xử lí ảnh số\video\7883830674410.mp4" 
 cap = cv2.VideoCapture(VIDEO_PATH)
 
 # 3. Các tham số cấu hình bộ đệm logic chống nhiễu
