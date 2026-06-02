@@ -28,7 +28,8 @@ TEAM_GMAILS = [
     "minhnguyetdang2304@gmail.com",
     "nvt21092005@gmail.com",
     "oituanday444@gmail.com",
-    "vutruclam1202@gmail.com"
+    "vutruclam1202@gmail.com",
+    "huynhlekimyenn@gmail.com"
 ]
 
 def get_gmail_service():
@@ -100,7 +101,7 @@ print("🔐 Đang xác thực dịch vụ Google API...")
 gmail_service = get_gmail_service()
 
 model = YOLO("fire_smoke_model/best.pt")
-VIDEO_PATH = r"E:\Xử lí ảnh số\video\7883830674410.mp4"
+VIDEO_PATH = r"vid2.mp4"
 cap = cv2.VideoCapture(VIDEO_PATH)
 
 if cap.isOpened():
@@ -153,7 +154,7 @@ while cap.isOpened():
             cv2.imwrite(image_name, frame)
 
             try:
-                playsound(r"E:\test\mixkit-facility-alarm-sound-999.wav")
+                playsound(r"mixkit-facility-alarm-sound-999.wav")
             except Exception as e:
                 print("⚠ Không phát được âm thanh alarm.mp3:", e)
 
