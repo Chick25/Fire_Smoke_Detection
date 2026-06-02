@@ -100,7 +100,7 @@ gmail_service = get_gmail_service()
 
 model = YOLO("fire_smoke_model/best.pt")
 # RTSP_URL = "rtsp://admin:L28DF769@192.168.1.119:554/cam/realmonitor?channel=1&subtype=0"
-VIDEO_PATH = "vid2.mp4"
+VIDEO_PATH = "test.mp4"
 cap = cv2.VideoCapture(VIDEO_PATH)
 # cap = cv2.VideoCapture(RTSP_URL, cv2.CAP_FFMPEG)
 if cap.isOpened():
