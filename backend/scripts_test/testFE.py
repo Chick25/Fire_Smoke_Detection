@@ -23,7 +23,7 @@ def run_video_processing():
     """
     global is_thread_running
     VIDEO_PATH = "vid2.mp4" 
-    cap = cv2.VideoCapture(VIDEO_PATH)
+    cap = cv2.VideoCapture(0)
 
     # Các tham số cấu hình logic chống nhiễu
     fire_frame_counter = 0
@@ -79,10 +79,13 @@ def run_video_processing():
             
             # 🚨 [EVENT 2]: Bắn tin nhắn cảnh báo chính thức lên thanh Sidebar (Có cooldown chống spam tin)
             if current_time - last_alert_time > ALERT_COOLDOWN:
-                print(f"🚨 [CẢNH BÁO HOẢ HOẠN] Phát hiện {current_type.upper()} lúc: {time.strftime('%H:%M:%S')}")
+                time_str = time.strftime('%H:%M:%S')
+                print(f"🚨 [CẢNH BÁO HOẢ HOẠN] Phát hiện {current_type.upper()} lúc: {time_str}")
+                
+                # Gửi kèm thời gian xử lý chính xác từ backend sang frontend
                 socketio.emit('new_alert', {
                     'type': current_type,
-                    'message': f'Phát hiện dấu hiệu hỏa hoạn ({current_type.upper()}) tại khu vực camera chính!'
+                    'message': f'Hệ thống phát hiện dấu hiệu hỏa hoạn ({current_type.upper()}) tại khu vực camera chính lúc {time_str}!'
                 })
                 last_alert_time = current_time
 
