@@ -16,8 +16,11 @@ interface HistoryCaseItem {
 }
 
 const socket: Socket = io('http://127.0.0.1:5000', {
-  transports: ['polling','websocket'],
-  upgrade: true
+  transports: ['polling', 'websocket'],
+  upgrade: true,
+  reconnection: true,
+  reconnectionAttempts: 10,
+  timeout: 15000,
 });
 
 function App() {
@@ -28,17 +31,39 @@ function App() {
   const [caseCount, setCaseCount] = useState<number>(0);
   const [caseHistory, setCaseHistory] = useState<HistoryCaseItem[]>([]);
 
+  const [activeTab, setActiveTab] = useState<'camera' | 'video'>('camera');
+  const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [uploadedVideoName, setUploadedVideoName] = useState<string>('');
+  const [isConnected, setIsConnected] = useState<boolean>(false);
+
+
+  const resetStreamData = () => {
+    setImageSrc('');
+    setRiskLevel(0);
+    setAlerts([]);
+    setSystemStatus('safe');
+  };
   useEffect(() => {
-    socket.emit('start_stream');
+    // Theo dõi kết nối
+    socket.on('connect', () => {
+      console.log('✅ Socket Connected!');
+      setIsConnected(true);
+      socket.emit('start_stream'); // Khởi động mặc định
+    });
+
+    socket.on('disconnect', () => {
+      console.log('❌ Socket Disconnected!');
+      setIsConnected(false);
+    });
+
+    socket.on('connect_error', (err) => {
+      console.error('❌ Socket Error:', err.message);
+      setIsConnected(false);
+    });
 
     socket.on('risk_update', (data: { level: number }) => {
       setRiskLevel(data.level);
-      if (data.level >= 15) {
-        setSystemStatus('danger');
-      } else if (data.level === 0) {
-        setSystemStatus('safe');
-      }
-      console.log(riskLevel);
+      setSystemStatus(data.level >= 15 ? 'danger' : 'safe');
     });
 
     socket.on('video_frame', (data: { image: string }) => {
@@ -54,37 +79,20 @@ function App() {
         message: data.message,
       };
 
-      // 1. Đẩy log chạy liên tục xuống bảng ghi sự cố không lọc trùng thời gian
       setAlerts((prev) => {
         const updatedAlerts = [newAlert, ...prev];
 
-        // 2. LOGIC TÍNH TỔNG SỐ VỤ VIỆC THỰC TẾ (Sửa lỗi nhảy vọt lên vụ thứ 2)
         setCaseCount((current) => {
-          // Nếu chưa có vụ việc nào được ghi nhận từ trước đến nay (đang bằng 0)
-          if (current === 0) {
-            return 1;
-          }
-
-          // Nếu đã có từ 1 vụ việc trở lên, kiểm tra khoảng cách thời gian với cảnh báo gần nhất
-          if (prev.length > 0) {
-            const timeParts = prev[0].time.split(':');
-            const lastAlertTime = new Date();
-            lastAlertTime.setHours(
-              parseInt(timeParts[0], 10),
-              parseInt(timeParts[1], 10),
-              parseInt(timeParts[2], 10)
-            );
-
-            const timeDiffInMinutes = (now.getTime() - lastAlertTime.getTime()) / 1000 / 60;
-
-            // Chỉ tăng thêm vụ việc mới nếu khoảng cách từ log cũ đã quá 2 phút
-            if (timeDiffInMinutes > 2) {
-              return current + 1;
-            }
-          }
-
-          // Ngược lại, giữ nguyên mã vụ việc hiện tại
-          return current;
+          if (current === 0 || prev.length === 0) return current + 1;
+          const timeParts = prev[0].time.split(':');
+          const lastAlertTime = new Date();
+          lastAlertTime.setHours(
+            parseInt(timeParts[0], 10),
+            parseInt(timeParts[1], 10),
+            parseInt(timeParts[2], 10)
+          );
+          const diffMinutes = (now.getTime() - lastAlertTime.getTime()) / 1000 / 60;
+          return diffMinutes > 2 ? current + 1 : current;
         });
 
         return updatedAlerts;
@@ -92,26 +100,88 @@ function App() {
     });
 
     return () => {
+      socket.off('connect');
+      socket.off('disconnect');
+      socket.off('connect_error');
       socket.off('risk_update');
       socket.off('video_frame');
       socket.off('new_alert');
     };
   }, []);
 
+  const switchStreamSource = (type: 'camera' | 'video', videoName?: string) => {
+    setActiveTab(type);
+    resetStreamData();
+
+    if (type === 'camera') {
+      setUploadedVideoName('');
+      socket.emit('start_stream');
+    } else if (type === 'video' && videoName) {
+      setUploadedVideoName(videoName);
+      socket.emit('start_stream', { video_name: videoName });
+    }
+  };
+
   const handleResolveCase = () => {
     if (alerts.length === 0) return;
 
-    const now = new Date();
     const newHistoryItem: HistoryCaseItem = {
       caseId: caseCount,
-      resolvedAt: now.toLocaleTimeString('vi-VN'),
-      logs: [...alerts]
+      resolvedAt: new Date().toLocaleTimeString('vi-VN'),
+      logs: [...alerts],
     };
 
     setCaseHistory(prev => [newHistoryItem, ...prev]);
     setAlerts([]);
     setSystemStatus('safe');
   };
+
+  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    setImageSrc('');
+
+    console.log(`📤 Đang upload file: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+
+    const formData = new FormData();
+    formData.append('video_file', file);
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // Timeout 30 giây
+
+      const response = await fetch('http://127.0.0.1:5000/upload', {
+        method: 'POST',
+        body: formData,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      console.log(`📥 Response status: ${response.status}`);
+
+      const data = await response.json();
+
+      if (response.ok) {
+        console.log("✅ Upload thành công:", data);
+        switchStreamSource('video', data.filename);
+      } else {
+        alert(`Lỗi server: ${data.error || 'Không rõ'}`);
+      }
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        alert('⏱️ Upload bị timeout (quá 30 giây)');
+      } else {
+        console.error("❌ Upload error:", error);
+        alert('Không thể kết nối đến server. Kiểm tra backend có đang chạy không?');
+      }
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
 
   return (
     <div className="min-h-screen bg-neutral-950 text-white font-sans antialiased selection:bg-red-600/30 pb-12">
@@ -191,9 +261,17 @@ function App() {
             <div className="flex justify-between items-center mb-3">
               <h3 className="text-md font-bold tracking-wide text-neutral-300 uppercase flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-ping"></span>
-                MÀN HÌNH QUAN SÁT TRỰC TUYẾN AI
+                MÀN HÌNH QUAN SÁT AI {activeTab === 'camera' ? '(LIVE CAM)' : '(VIDEO TEST)'}
               </h3>
-              <span className="text-xs font-mono bg-neutral-950 px-2 py-1 rounded text-neutral-500 border border-neutral-850">FPS: ~30</span>
+
+              <div className="flex p-1 bg-neutral-950 rounded-xl border border-neutral-800/80 w-fit">
+                <button onClick={() => switchStreamSource('camera')} className={`px-4 py-1.5 rounded-lg font-bold text-[11px] uppercase tracking-wider transition-all ${activeTab === 'camera' ? 'bg-blue-600/10 border border-blue-500/40 text-blue-400' : 'text-neutral-500 hover:text-neutral-300'}`}>
+                  Camera
+                </button>
+                <button onClick={() => setActiveTab('video')} className={`px-4 py-1.5 rounded-lg font-bold text-[11px] uppercase tracking-wider transition-all ${activeTab === 'video' ? 'bg-orange-600/10 border border-orange-500/40 text-orange-400' : 'text-neutral-500 hover:text-neutral-300'}`}>
+                  Video
+                </button>
+              </div>
             </div>
 
             <div className={`relative aspect-video rounded-xl overflow-hidden flex items-center justify-center bg-stone-950 border-2 transition-all duration-300 ${
@@ -234,49 +312,27 @@ function App() {
                 />
               </div>
             </div>
+            {activeTab === 'video' && (
+              <div className="mt-6 flex justify-end">
+                <label className={`cursor-pointer inline-flex items-center gap-3 bg-neutral-800 hover:bg-neutral-700 text-white font-bold text-xs uppercase tracking-wider px-5 py-3 rounded-lg transition-colors border border-neutral-700 ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                  📥 {isUploading ? 'Đang xử lý...' : 'Import Video Mới'}
+                  <input 
+                    type="file" 
+                    accept="video/*" 
+                    className="hidden" 
+                    disabled={isUploading}
+                    onChange={handleVideoUpload}
+                  />
+                </label>
+              </div>
+            )}
+
+            {activeTab === 'video' && uploadedVideoName && (
+              <p className="text-center text-blue-400 text-sm mt-2">Đang phát: {uploadedVideoName}</p>
+            )}
           </div>
 
-<label className="cursor-pointer inline-flex items-center gap-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs uppercase tracking-wider px-4 py-2.5 rounded-lg transition-colors shadow-lg">
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
-    </svg>
-    📥 Import Video Mới
-    <input 
-      type="file" 
-      accept="video/*" 
-      className="hidden" 
-      onChange={async (e) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
 
-        // 1. Đóng gói file video vào FormData
-        const formData = new FormData();
-        formData.append('video_file', file); 
-
-        try {
-          // 2. Gửi HTTP POST lên API Upload của Flask
-          const response = await fetch('http://127.0.0.1:5000/upload', {
-            method: 'POST',
-            body: formData,
-          });
-
-          const data = await response.json();
-
-          if (response.ok) {
-            alert(`Upload thành công: ${data.filename}! Hệ thống đang nạp luồng AI...`);
-            
-            // 3. Gọi lệnh Socket chạy video đúng với tên file vừa được upload lên
-            // (Logic xử lý start_stream bên backend của bạn sẽ nhận tham số này để đổi nguồn)
-            socket.emit('start_stream', { video_name: data.filename });
-          } else {
-            alert(`Lỗi upload: ${data.error}`);
-          }
-        } catch (error) {
-          alert('Không thể kết nối đến server để upload video.');
-        }
-      }}
-    />
-  </label>
           
 
           {/* CỘT PHẢI: BẢN GHI SỰ CỐ & THỦ TỤC */}
