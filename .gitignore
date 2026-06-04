@@ -58,3 +58,16 @@ credentials.json
 backend/token.json
 backend/credentials.json
 .env
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Media & Heavy Files
+backend/media/*.mp4
+backend/media/*.avi
+backend/media/*.jpg
+backend/media/*.png
+
+# Chặn file nháp cá nhân (nếu cần)
+app_flask.py

@@ -16,8 +16,8 @@ interface HistoryCaseItem {
 }
 
 const socket: Socket = io('http://127.0.0.1:5000', {
-  transports: ['websocket'],
-  upgrade: false
+  transports: ['polling','websocket'],
+  upgrade: true
 });
 
 function App() {
@@ -38,6 +38,7 @@ function App() {
       } else if (data.level === 0) {
         setSystemStatus('safe');
       }
+      console.log(riskLevel);
     });
 
     socket.on('video_frame', (data: { image: string }) => {
@@ -234,6 +235,49 @@ function App() {
               </div>
             </div>
           </div>
+
+<label className="cursor-pointer inline-flex items-center gap-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs uppercase tracking-wider px-4 py-2.5 rounded-lg transition-colors shadow-lg">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+    </svg>
+    📥 Import Video Mới
+    <input 
+      type="file" 
+      accept="video/*" 
+      className="hidden" 
+      onChange={async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        // 1. Đóng gói file video vào FormData
+        const formData = new FormData();
+        formData.append('video_file', file); 
+
+        try {
+          // 2. Gửi HTTP POST lên API Upload của Flask
+          const response = await fetch('http://127.0.0.1:5000/upload', {
+            method: 'POST',
+            body: formData,
+          });
+
+          const data = await response.json();
+
+          if (response.ok) {
+            alert(`Upload thành công: ${data.filename}! Hệ thống đang nạp luồng AI...`);
+            
+            // 3. Gọi lệnh Socket chạy video đúng với tên file vừa được upload lên
+            // (Logic xử lý start_stream bên backend của bạn sẽ nhận tham số này để đổi nguồn)
+            socket.emit('start_stream', { video_name: data.filename });
+          } else {
+            alert(`Lỗi upload: ${data.error}`);
+          }
+        } catch (error) {
+          alert('Không thể kết nối đến server để upload video.');
+        }
+      }}
+    />
+  </label>
+          
 
           {/* CỘT PHẢI: BẢN GHI SỰ CỐ & THỦ TỤC */}
           <div className="lg:w-[400px] w-full flex flex-col gap-6">
