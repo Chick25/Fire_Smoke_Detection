@@ -16,3 +16,45 @@
 !.vid2.mp4
 
 token.json
+
+
+# ====================================================================
+# 1. CHẶN THƯ VIỆN RÁC (BẮT BUỘC PHẢI CÓ)
+# ====================================================================
+node_modules/
+frontend/node_modules/
+backend/__pycache__/
+.vscode/
+.DS_Store
+
+# ====================================================================
+# 2. QUY HOẠCH FILE MEDIA NẶNG TRONG BACKEND
+# ====================================================================
+# Chặn toàn bộ video và file nén trong folder backend/media để tránh nặng Git
+backend/media/*.mp4
+backend/media/*.avi
+backend/media/*.mkv
+backend/media/*.zip
+
+# Ngoại lệ: Giữ lại duy nhất file vid2.mp4 trong thư mục media phục vụ demo nhóm
+!backend/media/vid2.mp4
+
+# Chặn file ảnh rác nằm ở thư mục gốc (nếu có)
+pic1.jpg
+vid1.mp4
+fire_smoke_model.zip
+
+# ====================================================================
+# 3. CHẶN TRỌNG SỐ MÔ HÌNH AI (FILE QUÁ NẶNG >100MB)
+# ====================================================================
+*.pt
+backend/models/
+
+# ====================================================================
+# 4. BẢO MẬT THÔNG TIN (CHẶN TOKEN GMAIL / TELEGRAM)
+# ====================================================================
+token.json
+credentials.json
+backend/token.json
+backend/credentials.json
+.env
