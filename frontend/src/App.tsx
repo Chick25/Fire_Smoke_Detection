@@ -137,9 +137,11 @@ function App() {
     if (type === 'camera') {
       setUploadedVideoName('');
       socket.emit('start_stream');
-    } else if (type === 'video' && videoName) {
-      setUploadedVideoName(videoName);
-      socket.emit('start_stream', { video_name: videoName });
+    } else if (type === 'video') {
+      const finalVideoName = videoName && videoName.trim() !== "" ? videoName : "vid2.mp4";
+      setUploadedVideoName(finalVideoName);
+      socket.emit('start_stream', { video_name: finalVideoName });
+      console.log(`📡 [FRONT-END] Đã gửi lệnh phát video: ${finalVideoName}`);
     }
   };
 
@@ -289,7 +291,7 @@ function App() {
                 <button onClick={() => switchStreamSource('camera')} className={`px-4 py-1.5 rounded-lg font-bold text-[11px] uppercase tracking-wider transition-all ${activeTab === 'camera' ? 'bg-blue-600/10 border border-blue-500/40 text-blue-400' : 'text-neutral-500 hover:text-neutral-300'}`}>
                   Camera
                 </button>
-                <button onClick={() => setActiveTab('video')} className={`px-4 py-1.5 rounded-lg font-bold text-[11px] uppercase tracking-wider transition-all ${activeTab === 'video' ? 'bg-orange-600/10 border border-orange-500/40 text-orange-400' : 'text-neutral-500 hover:text-neutral-300'}`}>
+                <button onClick={() => switchStreamSource('video')} className={`px-4 py-1.5 rounded-lg font-bold text-[11px] uppercase tracking-wider transition-all ${activeTab === 'video' ? 'bg-orange-600/10 border border-orange-500/40 text-orange-400' : 'text-neutral-500 hover:text-neutral-300'}`}>
                   Video
                 </button>
               </div>

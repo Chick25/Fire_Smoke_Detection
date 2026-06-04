@@ -12,14 +12,15 @@ import numpy as np
 from collections import deque
 from src.services.send_mess import send_messenger_alert_to_all# Hàm gửi tin nhắn đã được tách riêng vào file send_mess.py để dễ quản lý và tái sử dụng
 
-
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
 # Khởi tạo cấu hình Flask và Socket.IO (Bỏ async_mode='eventlet' để chạy ổn định trên Windows)
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
-
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Nạp mô hình YOLOv8 từ thư mục của bạn
-MODEL_PATH = "..\\fire_smoke_model\\best_final.pt"
+# MODEL_PATH = "..\\fire_smoke_model\\best_final.pt"
+MODEL_PATH = os.path.join(BASE_DIR, '..', 'fire_smoke_model', 'best_final.pt')
 model = YOLO(MODEL_PATH)
 
 def get_metrics(frame, fire_boxes, smoke_boxes, prev_fire_area):
@@ -133,7 +134,9 @@ if hasattr(model.model, 'fuse'):
 
 is_streaming = False
 thread_active = False
-current_video_source = "media/vid2.mp4" 
+# current_video_source = "media/vid2.mp4" 
+current_video_source = "rtsp://admin:L28DF769@192.168.1.119:554/cam/realmonitor?channel=1&subtype=0"
+print(f"📷 [MẶC ĐỊNH KHỞI ĐỘNG] Đã thiết lập nguồn camera IP: {current_video_source}")
 video_speed_delay = 0.04  # Delay mặc định ban đầu cho tốc độ x1
 
 # Định nghĩa thư mục lưu video
@@ -500,6 +503,11 @@ def generate_frames():
     
     thread_active = True
     cap = cv2.VideoCapture(current_video_source)
+    if cap.isOpened():
+    # Nếu đang đọc luồng mạng RTSP, ép bộ đệm lưu trữ về 1 khung hình duy nhất
+        if isinstance(current_video_source, str) and "rtsp" in current_video_source:
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
 
     fire_frame_counter = 0
     FRAME_THRESHOLD = 15
@@ -707,48 +715,165 @@ def handle_connect():
 #     thread.start()
 
 @socketio.on('start_stream') 
+# def handle_start_stream(data=None): 
+#     global is_streaming, current_video_source, thread_active
+    
+#     video_name = data.get('video_name') if data else None
+
+#     # 1. KIỂM TRA VÀ CẬP NHẬT NGUỒN VIDEO ĐẦU VÀO AN TOÀN
+#     if data and isinstance(data, dict):
+#         # Dùng .get() để lấy an toàn, nếu không có key sẽ trả về None chứ không sập Server
+#         video_name = data.get('video_name')
+        
+#         if video_name:
+#             custom_source = f"media/{video_name}"
+            
+#             # Kiểm tra xem file video đó thực sự có tồn tại trong thư mục media chưa
+#             if os.path.exists(custom_source):
+#                 current_video_source = custom_source
+#                 print(f"📁 [CẤU HÌNH] Đã chuyển nguồn nhận diện sang file mới: {current_video_source}")
+#             else:
+#                 print(f"⚠️ [CẢNH BÁO] Không tìm thấy file {custom_source}. Tiếp tục dùng nguồn cũ: {current_video_source}")
+#         else:
+#             current_video_source = "rtsp://admin:L28DF769@192.168.1.119:554/cam/realmonitor?channel=1&subtype=0"
+#             print(f"📷 [HỆ THỐNG] Nhận yêu cầu bật Camera từ FE. Đặt nguồn RTSP: {current_video_source}")
+#             # print(f"ℹ [HỆ THỐNG] Không nhận được tên video mới. Dùng nguồn hiện tại: {current_video_source}")
+#     else:
+#         # Nếu data truyền sang trống rỗng (Ví dụ khi vừa load trang bấm Start mặc định)
+#         current_video_source = "media/vid2.mp4" 
+#         print(f"ℹ [HỆ THỐNG] FE không truyền dữ liệu cấu hình. Đặt video mặc định: {current_video_source}")
+        
+#     print("📡 [TÍN HIỆU] Nhận lệnh khởi động luồng stream video từ FE.")
+    
+#     # 2. ĐIỀU PHỐI VÀ CHẶN TRÙNG LUỒNG AN TOÀN
+#     if is_streaming:
+#         is_streaming = False
+        
+#     timeout_counter = 0
+#     # Đợi cho luồng cũ chạy xong xuôi lệnh cap.release() để giải phóng tài nguyên
+#     while thread_active and timeout_counter < 20:  # Chờ tối đa 2 giây (20 * 0.1s)
+#         time.sleep(0.1)
+#         timeout_counter += 1
+
+#     # 3. KÍCH HOẠT LUỒNG MỚI TRÊN NỀN SẠCH
+#     is_streaming = True
+    
+#     thread = threading.Thread(target=generate_frames)
+#     thread.daemon = True  # Đảm bảo luồng tự hủy khi tắt ứng dụng chính
+#     thread.start()
+
+@socketio.on('start_stream') 
+# def handle_start_stream(data=None): 
+#     global is_streaming, current_video_source, thread_active
+    
+#     print(f"📥 [SOCKET] Nhận lệnh start_stream từ FE. Dữ liệu thô: {data}")
+
+#     # =================================================================
+#     # THAY ĐỔI CHIẾN LƯỢC: ƯU TIÊN CAMERA IP LÀM MẶC ĐỊNH TUYỆT ĐỐI
+#     # =================================================================
+#     camera_rtsp = "rtsp://admin:L2E1EB60@192.168.1.120:554/cam/realmonitor?channel=1&subtype=0"
+    
+#     if data and isinstance(data, dict):
+#         video_name = data.get('video_name')
+        
+#         # Nếu FE có truyền video_name và tên file KHÔNG RỖNG
+#         if video_name and str(video_name).strip() != "":
+#             # Nếu người dùng cố tình bấm chọn một video test cụ thể
+#             custom_source = f"media/{video_name}"
+#             if os.path.exists(custom_source):
+#                 current_video_source = custom_source
+#                 print(f"📁 [HỆ THỐNG] Nhận yêu cầu phát file video test: {current_video_source}")
+#             else:
+#                 # Nếu file yêu cầu không có thật, ép về Camera IP luôn
+#                 current_video_source = camera_rtsp
+#                 print(f"⚠️ [CẢNH BÁO] Không tìm thấy file {custom_source}. Ép về Camera IP.")
+#         else:
+#             # Nếu truyền object rỗng {} (Bấm nút Camera)
+#             current_video_source = camera_rtsp
+#             print(f"📷 [HỆ THỐNG] Dữ liệu rỗng từ FE -> Kích hoạt Live Camera IP: {current_video_source}")
+#     else:
+#         # TRƯỜNG HỢP GẶP PHẢI TRÊN LOG CỦA BẠN (Data hoàn toàn bằng None khi vừa load trang)
+#         current_video_source = camera_rtsp
+#         print(f"📷 [HỆ THỐNG] FE kết nối mặc định (None) -> Ép chạy Live Camera IP: {current_video_source}")
+        
+#     print("📡 [TÍN HIỆU] Sẵn sàng kích hoạt luồng xử lý AI.")
+    
+#     # 2. ĐIỀU PHỐI VÀ CHẶN TRÙNG LUỒNG AN TOÀN
+#     if is_streaming:
+#         is_streaming = False
+        
+#     timeout_counter = 0
+#     while thread_active and timeout_counter < 20:  # Chờ tối đa 2 giây (20 * 0.1s)
+#         time.sleep(0.1)
+#         timeout_counter += 1
+
+#     # 3. KÍCH HOẠT LUỒNG MỚI TRÊN NỀN SẠCH
+#     is_streaming = True
+    
+#     thread = threading.Thread(target=generate_frames)
+#     thread.daemon = True  # Đảm bảo luồng tự hủy khi tắt ứng dụng chính
+#     thread.start()
+
+@socketio.on('start_stream') 
 def handle_start_stream(data=None): 
     global is_streaming, current_video_source, thread_active
     
-    # 1. KIỂM TRA VÀ CẬP NHẬT NGUỒN VIDEO ĐẦU VÀO AN TOÀN
+    print(f"\n📥 [SOCKET] Nhận lệnh start_stream mới từ FE. Dữ liệu thô: {data}")
+
+    # =================================================================
+    # BƯỚC 1: RA LỆNH NGẮT TUYỆT ĐỐI LUỒNG CŨ ĐỂ GIẢI PHÓNG CAMERA/FILE VŨ
+    # =================================================================
+    if is_streaming or thread_active:
+        print("🛑 [HỆ THỐNG] Phát hiện luồng cũ đang chạy. Tiến hành ngắt để giải phóng tài nguyên...")
+        is_streaming = False  # Đánh dấu sai để vòng lặp while trong generate_frames dừng lại
+        
+        timeout_counter = 0
+        # Đợi luồng cũ chạy hết block code và gọi lệnh cap.release() sạch sẽ
+        while thread_active and timeout_counter < 30:  # Chờ tối đa 3 giây (30 * 0.1s)
+            time.sleep(0.1)
+            timeout_counter += 1
+        print("✅ [HỆ THỐNG] Luồng cũ đã được giải phóng hoàn toàn.")
+
+    # Mặc định liên kết Camera IP nhà bạn
+    camera_rtsp = "rtsp://admin:L28DF769@192.168.1.119:554/cam/realmonitor?channel=1&subtype=0"
+
+    # =================================================================
+    # BƯỚC 2: PHÂN TÍCH VÀ ĐỊNH TUYẾN NGUỒN PHÁT MỚI TRÊN NỀN SẠCH
+    # =================================================================
     if data and isinstance(data, dict):
-        # Dùng .get() để lấy an toàn, nếu không có key sẽ trả về None chứ không sập Server
         video_name = data.get('video_name')
         
-        if video_name:
+        # Nếu Front-End truyền lên tên video và chuỗi đó không rỗng
+        if video_name and str(video_name).strip() != "":
             custom_source = f"media/{video_name}"
             
-            # Kiểm tra xem file video đó thực sự có tồn tại trong thư mục media chưa
+            # Kiểm tra file video test có tồn tại thực tế hay không
             if os.path.exists(custom_source):
                 current_video_source = custom_source
-                print(f"📁 [CẤU HÌNH] Đã chuyển nguồn nhận diện sang file mới: {current_video_source}")
+                print(f"📁 [CHẾ ĐỘ VIDEO] Đã chuyển nguồn sang file: {current_video_source} (Đã ngắt Cam)")
             else:
-                print(f"⚠️ [CẢNH BÁO] Không tìm thấy file {custom_source}. Tiếp tục dùng nguồn cũ: {current_video_source}")
+                # Nếu file không tồn tại, quay về Camera IP mặc định
+                current_video_source = camera_rtsp
+                print(f"⚠️ [CẢNH BÁO] Không tìm thấy file {custom_source}. Quay lại nguồn Cam IP.")
         else:
-            print(f"ℹ [HỆ THỐNG] Không nhận được tên video mới. Dùng nguồn hiện tại: {current_video_source}")
+            # Nếu object rỗng {} (Do giao diện React gửi sang khi bấm chọn Camera)
+            current_video_source = camera_rtsp
+            print(f"📷 [CHẾ ĐỘ CAMERA] Bật Live Camera IP: {current_video_source}")
     else:
-        # Nếu data truyền sang trống rỗng (Ví dụ khi vừa load trang bấm Start mặc định)
-        current_video_source = "media/vid2.mp4" 
-        print(f"ℹ [HỆ THỐNG] FE không truyền dữ liệu cấu hình. Đặt video mặc định: {current_video_source}")
-        
-    print("📡 [TÍN HIỆU] Nhận lệnh khởi động luồng stream video từ FE.")
-    
-    # 2. ĐIỀU PHỐI VÀ CHẶN TRÙNG LUỒNG AN TOÀN
-    if is_streaming:
-        is_streaming = False
-        
-    timeout_counter = 0
-    # Đợi cho luồng cũ chạy xong xuôi lệnh cap.release() để giải phóng tài nguyên
-    while thread_active and timeout_counter < 20:  # Chờ tối đa 2 giây (20 * 0.1s)
-        time.sleep(0.1)
-        timeout_counter += 1
+        # Trường hợp data là None (Khi vừa tải trang xong)
+        current_video_source = camera_rtsp
+        print(f"📷 [MẶC ĐỊNH LÀM MỚI TÀI TRANG] Ép chạy Live Camera IP: {current_video_source}")
 
-    # 3. KÍCH HOẠT LUỒNG MỚI TRÊN NỀN SẠCH
+    # =================================================================
+    # BƯỚC 3: KHỞI CHẠY LUỒNG AI MỚI VỚI NGUỒN ĐÃ ĐỔI
+    # =================================================================
     is_streaming = True
     
     thread = threading.Thread(target=generate_frames)
-    thread.daemon = True  # Đảm bảo luồng tự hủy khi tắt ứng dụng chính
+    thread.daemon = True  # Tự hủy luồng khi server tắt hẳn
     thread.start()
+    print("🚀 [HỆ THỐNG] Đã kích hoạt luồng AI xử lý nguồn mới thành công!")
+
 
 @socketio.on('change_speed')
 def handle_change_speed(data):
