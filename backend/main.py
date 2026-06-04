@@ -1,32 +1,39 @@
 import base64
 import cv2
 import time
-import os  # Thêm thư viện os để kiểm tra đường dẫn file
-import threading  # ĐÃ THAY THẾ: Dùng thư viện luồng chuẩn của Python thay cho eventlet
+import os  
+import threading  
+import requests
 from flask import Flask, request, jsonify  
 from flask_socketio import SocketIO
 from flask_cors import CORS
 from ultralytics import YOLO
 from werkzeug.utils import secure_filename  
 
-# Khởi tạo cấu hình Flask và Socket.IO (Bỏ async_mode='eventlet' để chạy ổn định trên Windows)
+# Khởi tạo cấu hình Flask và Socket.IO
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
-# Nạp mô hình YOLOv8 từ thư mục của bạn
-MODEL_PATH = "models/best_final.pt"
+# Nạp mô hình YOLOv8
+MODEL_PATH = "fire_smoke_model/best_new.pt"
 model = YOLO(MODEL_PATH)
 
-# Ép YOLO thực hiện fuse và compile mô hình ngay trên luồng chính để chống lỗi AttributeError: bn
+# Ép YOLO thực hiện fuse ngay trên luồng chính để chống lỗi AttributeError
 if hasattr(model.model, 'fuse'):
     model.model.fuse()
 
+# --- BIẾN TOÀN CỤC & CẤU HÌNH ---
 is_streaming = False
 current_video_source = "media/vid2.mp4" 
-video_speed_delay = 0.04  # Delay mặc định ban đầu cho tốc độ x1
+video_speed_delay = 0.04  # Tốc độ x1 mặc định
 
-# Định nghĩa thư mục lưu video
+# SỬA LỖI: Thêm danh sách số điện thoại khẩn cấp bị thiếu
+EMERGENCY_PHONES = ["0823679193","0773616537","0795577525"] 
+
+# Khóa Thread để bảo vệ các biến toàn cục khi đọc/ghi từ nhiều luồng
+data_lock = threading.Lock()
+
 UPLOAD_FOLDER = 'media'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
@@ -59,7 +66,12 @@ def generate_frames():
     last_alert_time = 0
     ALERT_COOLDOWN = 20   
     
-    while is_streaming and cap.isOpened():
+    while cap.isOpened():
+        # Kiểm tra trạng thái streaming an toàn với Lock
+        with data_lock:
+            if not is_streaming:
+                break
+
         success, frame = cap.read()
         if not success:
             cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -68,35 +80,32 @@ def generate_frames():
         results = model(frame, conf=0.45, verbose=False)
         annotated_frame = results[0].plot()
         
-        # is_danger_detected = False
-        is_fire_detected = False   # ĐÃ ĐỔI: Tập trung kiểm tra nhãn lửa
-        is_smoke_detected = False  # Theo dõi thêm nhãn khói nếu cần
-        detected_type = 'fire' 
+        is_fire_detected = False   
+        is_smoke_detected = False  
         
         for box in results[0].boxes:
             class_id = int(box.cls[0])
-            label = model.names[class_id]
-            # if label in ['fire', 'smoke']:
-            #     is_danger_detected = True
-            #     detected_type = label 
-            #     break
+            label = model.names[class_id].lower() # Chuyển về chữ thường để tránh sót nhãn 'Fire'/'fire'
+            
             print(f"🔍 [YOLO DETECT] Tìm thấy nhãn: '{label}' với độ tự tin: {float(box.conf[0]):.2f}")
-            if label in ['fire', 'Fire']:
+            if label == 'fire':
                 is_fire_detected = True
-                # detected_type = 'fire'
-                break # Ưu tiên lửa cao nhất, thấy lửa là dừng vòng lặp để xử lý ngay
+                break  # Thấy lửa ưu tiên cao nhất, thoát vòng lặp luôn
             elif label == 'smoke':
                 is_smoke_detected = True
-                # detected_type = 'smoke'
                 
+        # --- LOGIC TÍNH TOÁN RISK LEVEL & ĐỊNH DẠNG KHẨN CẤP ---
         if is_fire_detected:
             fire_frame_counter = min(FRAME_THRESHOLD, fire_frame_counter + 1)
             detected_type = 'fire'
+        elif is_smoke_detected:
+            # Nếu chỉ có khói, vẫn tăng hoặc giữ mức độ rủi ro tùy bạn chọn, 
+            # ở đây giữ logic tăng counter nếu có khói, nhưng ưu tiên gọi tên khói
+            fire_frame_counter = min(FRAME_THRESHOLD, fire_frame_counter + 1)
+            detected_type = 'smoke'
         else:
             fire_frame_counter = max(0, fire_frame_counter - 1)
-            if is_smoke_detected and fire_frame_counter == 0:
-                detected_type = 'smoke'
-        # fire_frame_counter = min(FRAME_THRESHOLD, fire_frame_counter + 1)
+            detected_type = 'Bình thường'
 
         # 1. BẮN SỰ KIỆN 1: Ảnh mã hóa Base64 về kênh 'video_frame'
         _, buffer = cv2.imencode('.jpg', annotated_frame)
@@ -111,18 +120,39 @@ def generate_frames():
         })
 
         # 3. BẮN SỰ KIỆN 3: Kích hoạt thông báo lên kênh 'new_alert'
-        if fire_frame_counter >= FRAME_THRESHOLD:
+        if fire_frame_counter >= FRAME_THRESHOLD and (detected_type in ['fire', 'smoke']):
             current_time = time.time()
+
             if current_time - last_alert_time > ALERT_COOLDOWN:
+                alert_message = (
+                    f"CẢNH BÁO HỎA HOẠN! "
+                    f"Phát hiện {detected_type.upper()} tại khu dân cư "
+                    f"lúc {time.strftime('%H:%M:%S %d/%m/%Y')}"
+                )
+
                 socketio.emit('new_alert', {
                     'type': detected_type,
                     'message': f"Cảnh báo nguy hiểm! Phát hiện đám {'LỬA' if detected_type == 'fire' else 'KHÓI'} lớn xuất hiện tại Khu dân cư!"
                 })
+
+                # SMS GIẢ LẬP (Đã hết lỗi nhờ có EMERGENCY_PHONES toàn cục)
+                for phone in EMERGENCY_PHONES:
+                    send_sms_simulation(phone, alert_message)
+
+                # Gửi trạng thái SMS sang FE
+                socketio.emit('sms_sent', {
+                    'phones': EMERGENCY_PHONES,
+                    'message': alert_message
+                })
+
                 print(f"🚨 [HỆ THỐNG] Đã bắn sự kiện 'new_alert' sang FE lúc: {time.strftime('%H:%M:%S')}")
                 last_alert_time = current_time
 
-        # Sử dụng time.sleep chuẩn của Python, thời gian nghỉ thay đổi linh hoạt theo nút bấm tốc độ
-        time.sleep(video_speed_delay)
+        # Đọc thời gian delay an toàn từ Lock
+        with data_lock:
+            current_delay = video_speed_delay
+            
+        time.sleep(current_delay)
         
     cap.release()
     print("🛑 [AI STOP] Đã giải phóng luồng xử lý video hiện tại.")
@@ -131,6 +161,29 @@ def generate_frames():
 @socketio.on('connect')
 def handle_connect():
     print("🚀 [TÍN HIỆU] Giao diện Front-End đã kết nối thành công!")
+
+
+def send_sms_simulation(phone_number, message):
+    print("\n================================================")
+    print("📱 SMS CẢNH BÁO KHẨN CẤP")
+    print(f"📞 Người nhận : {phone_number}")
+    print(f"🕒 Thời gian  : {time.strftime('%H:%M:%S %d/%m/%Y')}")
+    print(f"📩 Nội dung   : {message}")
+    print("================================================\n")
+
+    try:
+        requests.post(
+            "https://webhook.site/239cd0e6-cde7-4e22-9951-601ee61d6084",
+            json={
+                "phone": phone_number,
+                "message": message,
+                "time": time.strftime('%H:%M:%S %d/%m/%Y')
+            },
+            timeout=5
+        )
+        print("✅ Đã gửi webhook thành công")
+    except Exception as e:
+        print(f"❌ Lỗi gửi webhook: {e}")
 
 
 @socketio.on('start_stream') 
@@ -149,15 +202,16 @@ def handle_start_stream(data=None):
         
     print("📡 [TÍN HIỆU] Nhận lệnh khởi động luồng stream video từ FE.")
     
-    if is_streaming:
-        is_streaming = False
-        time.sleep(0.3) 
-        
-    is_streaming = True
+    # Dùng Lock để đổi trạng thái streaming an toàn
+    with data_lock:
+        if is_streaming:
+            is_streaming = False
+            time.sleep(0.3)  # Đợi luồng cũ giải phóng xong
+        is_streaming = True
     
-    # ĐÃ THAY THẾ: Sử dụng Thread chuẩn của Python thay thế cho eventlet.spawn
+    # Khởi chạy luồng Thread chuẩn của Python
     thread = threading.Thread(target=generate_frames)
-    thread.daemon = True  # Đảm bảo luồng tự hủy khi tắt ứng dụng chính
+    thread.daemon = True  
     thread.start()
 
 
@@ -166,7 +220,8 @@ def handle_change_speed(data):
     global video_speed_delay
     if data and 'speed' in data:
         user_speed = float(data['speed'])
-        video_speed_delay = 0.04 / user_speed
+        with data_lock:
+            video_speed_delay = 0.04 / user_speed
         print(f"⏱️ [CẤU HÌNH] Người dùng đổi tốc độ sang: {user_speed}x (Delay: {video_speed_delay}s)")
 
 
@@ -174,11 +229,11 @@ def handle_change_speed(data):
 def handle_disconnect():
     global is_streaming
     print("❌ [TÍN HIỆU] Front-End đã ngắt kết nối.")
-    is_streaming = False
+    with data_lock:
+        is_streaming = False
 
 
 if __name__ == '__main__':
     print("=== Hệ thống giám sát hỏa hoạn khu dân cư đã sẵn sàng ===")
     print("📡 Đang mở cổng 5000 và đợi tín hiệu kết nối từ FE...")
-    # Tắt chế độ debug=True để tránh xung đột luồng và crash cổng trên Windows
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
