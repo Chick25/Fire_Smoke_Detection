@@ -38,7 +38,7 @@ backend/media/*.zip
 
 # Ngoại lệ: Giữ lại duy nhất file vid2.mp4 trong thư mục media phục vụ demo nhóm
 !backend/media/vid2.mp4
-
+backend/src/services/send_sms.py
 # Chặn file ảnh rác nằm ở thư mục gốc (nếu có)
 pic1.jpg
 vid1.mp4

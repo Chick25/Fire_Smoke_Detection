@@ -8,6 +8,9 @@ from flask_socketio import SocketIO
 from flask_cors import CORS
 from ultralytics import YOLO
 from werkzeug.utils import secure_filename  
+import numpy as np
+from src.services.send_mess import send_messenger_alert_to_all# Hàm gửi tin nhắn đã được tách riêng vào file send_mess.py để dễ quản lý và tái sử dụng
+
 
 # Khởi tạo cấu hình Flask và Socket.IO (Bỏ async_mode='eventlet' để chạy ổn định trên Windows)
 app = Flask(__name__)
@@ -17,6 +20,11 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 # Nạp mô hình YOLOv8 từ thư mục của bạn
 MODEL_PATH = "models/best_final.pt"
 model = YOLO(MODEL_PATH)
+
+print("🔥 [AI] Đang làm nóng (Warm-up) mô hình YOLO...")
+dummy_frame = np.zeros((640, 640, 3), dtype=np.uint8)
+model(dummy_frame, verbose=False) # Chạy mồi 1 lần duy nhất để nạp bộ nhớ
+print("✅ [AI] Mô hình đã sẵn sàng nhận diện tốc độ cao!")
 
 # Ép YOLO thực hiện fuse và compile mô hình ngay trên luồng chính để chống lỗi AttributeError: bn
 if hasattr(model.model, 'fuse'):
@@ -65,8 +73,43 @@ def generate_frames():
             cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
             continue
 
-        results = model(frame, conf=0.45, verbose=False)
-        annotated_frame = results[0].plot()
+        # results = model(frame, conf=0.45, verbose=False)
+        # annotated_frame = results[0].plot()
+        # === ĐÃ SỬA: Hạ ngưỡng conf để bắt lửa sớm và tăng iou để cho phép hiện nhiều box chồng lấn ===
+        results = model(frame, conf=0.30, iou=0.7, verbose=False)
+        
+        # Tạo một bản sao của khung hình gốc để tự vẽ box lên bằng tay
+        annotated_frame = frame.copy()
+        
+        is_fire_detected = False   
+        
+        # Duyệt qua từng đối tượng (box) mà mạng AI YOLOv8 quét được trong khung hình
+        for box in results[0].boxes:
+            # 1. Trích xuất tọa độ 4 góc của hộp (x_min, y_min, x_max, y_max)
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            
+            # 2. Lấy độ tự tin (Confidence) và nhãn lớp (Label)
+            conf = float(box.conf[0])
+            label = str(model.names[int(box.cls[0])]).strip().lower()
+            
+            # Kiểm tra xem có phải lửa hoặc khói không để kích hoạt biến trạng thái nguy hiểm
+            if label in ['fire', 'smoke']:
+                is_fire_detected = True
+                
+                # 3. Định nghĩa màu sắc Bounding Box giống bên Train: 
+                # Lửa màu Đỏ (độ dày 2), Khói màu Xanh lục hoặc Xanh dương tùy ý bạn
+                if label == 'fire':
+                    box_color = (0, 0, 255)      # Màu Đỏ (BGR)
+                else:
+                    box_color = (255, 255, 0)    # Màu Xanh Cyan/Cyan dương cho khói
+                
+                # 4. Vẽ hình chữ nhật bao quanh vùng cháy lên ảnh annotated_frame
+                cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), box_color, 2)
+                
+                # 5. Viết chữ hiển thị tên lớp và % tự tin ngay trên đầu hộp chữ nhật
+                caption = f"{label.upper()} {conf:.2f}"
+                cv2.putText(annotated_frame, caption, (x1, y1 - 8),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 2)
         
         # is_danger_detected = False
         is_fire_detected = False   # ĐÃ ĐỔI: Tập trung kiểm tra nhãn lửa
@@ -80,7 +123,7 @@ def generate_frames():
             #     is_danger_detected = True
             #     detected_type = label 
             #     break
-            print(f"🔍 [YOLO DETECT] Tìm thấy nhãn: '{label}' với độ tự tin: {float(box.conf[0]):.2f}")
+            # print(f"🔍 [YOLO DETECT] Tìm thấy nhãn: '{label}' với độ tự tin: {float(box.conf[0]):.2f}")
             if label in ['fire', 'Fire']:
                 is_fire_detected = True
                 # detected_type = 'fire'
@@ -119,6 +162,13 @@ def generate_frames():
                     'message': f"Cảnh báo nguy hiểm! Phát hiện đám {'LỬA' if detected_type == 'fire' else 'KHÓI'} lớn xuất hiện tại Khu dân cư!"
                 })
                 print(f"🚨 [HỆ THỐNG] Đã bắn sự kiện 'new_alert' sang FE lúc: {time.strftime('%H:%M:%S')}")
+
+                alert_msg = f"🚨 [CẢNH BÁO NGUY HIỂM] Phát hiện {'LỬA' if detected_type == 'fire' else 'KHÓI'} tại khu vực camera giám sát vào lúc: {time.strftime('%H:%M:%S')}"
+                messenger_thread = threading.Thread(target=send_messenger_alert_to_all, args=(alert_msg,))
+                messenger_thread.daemon = True
+                messenger_thread.start()
+
+
                 last_alert_time = current_time
 
         # Sử dụng time.sleep chuẩn của Python, thời gian nghỉ thay đổi linh hoạt theo nút bấm tốc độ
