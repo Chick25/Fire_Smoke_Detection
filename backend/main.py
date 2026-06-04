@@ -9,6 +9,7 @@ from flask_cors import CORS
 from ultralytics import YOLO
 from werkzeug.utils import secure_filename  
 import numpy as np
+from collections import deque
 from src.services.send_mess import send_messenger_alert_to_all# Hàm gửi tin nhắn đã được tách riêng vào file send_mess.py để dễ quản lý và tái sử dụng
 
 
@@ -18,8 +19,108 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # Nạp mô hình YOLOv8 từ thư mục của bạn
-MODEL_PATH = "models/best_final.pt"
+MODEL_PATH = "..\\fire_smoke_model\\best_final.pt"
 model = YOLO(MODEL_PATH)
+
+def get_metrics(frame, fire_boxes, smoke_boxes, prev_fire_area):
+    H, W = frame.shape[:2]
+    img_area = H * W
+
+    fire_area = sum(
+        (x2 - x1) * (y2 - y1)
+        for x1, y1, x2, y2 in fire_boxes
+    )
+
+    smoke_area = sum(
+        (x2 - x1) * (y2 - y1)
+        for x1, y1, x2, y2 in smoke_boxes
+    )
+
+    fire_percent = min(100.0, fire_area / img_area * 100)
+    smoke_percent = min(100.0, smoke_area / img_area * 100)
+
+    intensities = []
+
+    for x1, y1, x2, y2 in fire_boxes:
+        roi = frame[y1:y2, x1:x2]
+
+        if roi.size == 0:
+            continue
+
+        hsv = cv2.cvtColor(
+            roi,
+            cv2.COLOR_BGR2HSV
+        )
+
+        h = hsv[:, :, 0]
+        s = hsv[:, :, 1]
+        v = hsv[:, :, 2]
+
+        mask = (
+            (
+                (h <= 15)
+                | (h >= 170)
+                | ((h >= 15) & (h <= 35))
+            )
+            & (s > 80)
+            & (v > 80)
+        )
+
+        ratio = np.sum(mask) / max(mask.size, 1)
+
+        bright = (
+            np.mean(v[mask]) / 255
+            if ratio > 0.01
+            else 0
+        )
+
+        intensities.append(
+            (ratio + bright) / 2 * 100
+        )
+
+    color_intensity = (
+        float(np.mean(intensities))
+        if intensities
+        else 0
+    )
+
+    if prev_fire_area > 0:
+        spread_rate = abs(
+            fire_area - prev_fire_area
+        ) / prev_fire_area * 100
+    else:
+        spread_rate = 0
+
+    metrics = {
+        "fire_area": fire_percent,
+        "smoke_area": smoke_percent,
+        "intensity": color_intensity,
+        "spread_rate": min(100, spread_rate),
+    }
+
+    return metrics, fire_area
+
+def score_and_level(metrics):
+
+    score = (
+    metrics["fire_area"] * 0.6
+    + metrics["smoke_area"] * 0.15
+    + metrics["intensity"] * 0.15
+    + metrics["spread_rate"] * 0.1
+    )
+
+    score = min(score, 100)
+
+    if score < 10:
+        level = "SAFE"
+    elif score < 30:
+        level = "MEDIUM"
+    elif score < 50:
+        level = "HIGH"
+    else:
+        level = "CRITICAL"
+
+    return score, level
 
 print("🔥 [AI] Đang làm nóng (Warm-up) mô hình YOLO...")
 dummy_frame = np.zeros((640, 640, 3), dtype=np.uint8)
@@ -405,7 +506,19 @@ def generate_frames():
     last_alert_time = 0
     ALERT_COOLDOWN = 20   
 
+    prev_fire_area = 0
+
+    fire_area_history = deque(maxlen=10)
+    smoke_area_history = deque(maxlen=10)
+
+    fire_duration = 0
+    fire_start_time = None
+
+    frame_count = 0
+
     while is_streaming and cap.isOpened():
+        frame_count += 1
+
         success, frame = cap.read()
         if not success:
             cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -419,18 +532,27 @@ def generate_frames():
         is_fire_detected = False   
         is_smoke_detected = False
         detected_type = 'fire' 
-        
+
+        fire_boxes = []
+        smoke_boxes = []
         # 2. DUYỆT VÀ VẼ LẠI TOÀN BỘ BOX QUÉT ĐƯỢC
         for box in results[0].boxes:
             x1, y1, x2, y2 = map(int, box.xyxy[0])
             conf = float(box.conf[0])
             label = str(model.names[int(box.cls[0])]).strip().lower()
+           
             
             if label in ['fire', 'smoke']:
                 if label == 'fire':
+                    fire_boxes.append(
+                        (x1, y1, x2, y2)
+                    )
                     is_fire_detected = True
                     box_color = (0, 0, 255)      # Đỏ cho Lửa
                 else:
+                    smoke_boxes.append(
+                        (x1, y1, x2, y2)
+                    )
                     is_smoke_detected = True
                     box_color = (255, 255, 0)    # Xanh Cyan cho Khói
                 
@@ -439,6 +561,56 @@ def generate_frames():
                 caption = f"{label.upper()} {conf:.2f}"
                 cv2.putText(annotated_frame, caption, (x1, y1 - 8),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 2)
+        
+        metrics, prev_fire_area = get_metrics(
+            frame,
+            fire_boxes,
+            smoke_boxes,
+            prev_fire_area
+        )
+
+        fsi_score, risk_level = score_and_level(
+            metrics
+        )
+
+        if len(fire_boxes) > 0 or len(smoke_boxes) > 0:
+
+            if fire_start_time is None:
+                fire_start_time = time.time()
+
+            fire_duration = int(
+                time.time() - fire_start_time
+            )
+
+        else:
+
+            fire_start_time = None
+            fire_duration = 0
+        
+        fire_area_history.append(
+            metrics["fire_area"]
+        )
+
+        smoke_area_history.append(
+            metrics["smoke_area"]
+        )
+
+        fire_growth = 0
+        smoke_growth = 0
+
+        if len(fire_area_history) > 1:
+
+            fire_growth = (
+                fire_area_history[-1]
+                - fire_area_history[0]
+            )
+
+        if len(smoke_area_history) > 1:
+
+            smoke_growth = (
+                smoke_area_history[-1]
+                - smoke_area_history[0]
+            )
         
         # 3. LOGIC TÍCH LŨY RỦI RO (Giữ nguyên)
         if is_fire_detected:
@@ -460,6 +632,18 @@ def generate_frames():
             'level': fire_frame_counter,       
             'percentage': risk_percentage      
         })
+
+        analysis_data = {
+            "fireArea": round(metrics["fire_area"], 2),
+            "smokeArea": round(metrics["smoke_area"], 2),
+            "fireGrowth": round(fire_growth, 2),
+            "smokeGrowth": round(smoke_growth, 2),
+            "duration": fire_duration,
+            "intensity": round(metrics["intensity"], 2),
+            "fsi": round(fsi_score, 2),
+            "risk": risk_level
+        }
+        socketio.emit('analysis_update', analysis_data)
 
         # 5. LOGIC PHÁT CẢNH BÁO NGOẠI VI (new_alert, Messenger...)
         if fire_frame_counter >= FRAME_THRESHOLD:

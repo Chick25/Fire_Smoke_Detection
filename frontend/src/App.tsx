@@ -36,6 +36,17 @@ function App() {
   const [uploadedVideoName, setUploadedVideoName] = useState<string>('');
   const [isConnected, setIsConnected] = useState<boolean>(false);
 
+  const [analysis, setAnalysis] = useState({
+    fireArea: 0,
+    smokeArea: 0,
+    fireGrowth: 0,
+    smokeGrowth: 0,
+    duration: 0,
+    intensity: 0,
+    fsi: 0,
+    risk: 'SAFE'
+  });
+
 
   const resetStreamData = () => {
     setImageSrc('');
@@ -65,6 +76,15 @@ function App() {
       setRiskLevel(data.level);
       setSystemStatus(data.level >= 15 ? 'danger' : 'safe');
     });
+
+    socket.on(
+      "analysis_update",
+      (data) => {
+        console.log("📥 RECEIVED analysis_update:", data);
+
+        setAnalysis(data);
+      }
+    );
 
     socket.on('video_frame', (data: { image: string }) => {
       setImageSrc(`data:image/jpeg;base64,${data.image}`);
@@ -106,6 +126,7 @@ function App() {
       socket.off('risk_update');
       socket.off('video_frame');
       socket.off('new_alert');
+      socket.off('analysis_update');
     };
   }, []);
 
@@ -299,14 +320,14 @@ function App() {
               <div className="flex justify-between text-xs font-bold uppercase tracking-wider text-neutral-400">
                 <span>Chỉ số tích lũy rủi ro cháy nổ</span>
                 <span className={riskLevel > 15 ? 'text-red-500 font-black' : 'text-orange-400'}>
-                  {riskLevel} / 25 Khung hình nghi vấn
+                  {riskLevel} / 15 Khung hình nghi vấn
                 </span>
               </div>
               <div className="w-full bg-neutral-950 h-3 rounded-full overflow-hidden p-0.5 border border-neutral-800">
                 <div 
                   className="h-full rounded-full transition-all duration-100 ease-in-out"
                   style={{ 
-                    width: `${(riskLevel / 25) * 100}%`,
+                    width: `${(riskLevel / 15) * 100}%`,
                     backgroundColor: riskLevel > 15 ? '#dc2626' : riskLevel > 5 ? '#ea580c' : '#16a34a'
                   }}
                 />
@@ -330,6 +351,139 @@ function App() {
             {activeTab === 'video' && uploadedVideoName && (
               <p className="text-center text-blue-400 text-sm mt-2">Đang phát: {uploadedVideoName}</p>
             )}
+
+            {/* ================= FIRE ANALYSIS PANEL ================= */}
+
+            <div className="mt-6 bg-neutral-950 border border-neutral-800 rounded-xl p-4">
+
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-orange-400">
+                  🔥 Cảnh báo về mức độ cháy
+                </h3>
+
+                <span className="text-xs bg-red-950 text-red-400 px-2 py-1 rounded border border-red-800">
+                  Realtime
+                </span>
+              </div>
+
+              {/* Fire Area */}
+              <div className="mb-4">
+                <div className="flex justify-between text-xs mb-1">
+                  <span>Fire Area</span>
+                  <span>{analysis.fireArea.toFixed(1)}%</span>
+                </div>
+
+                <div className="h-3 bg-neutral-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-red-500"
+                    style={{ width: `${analysis.fireArea}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Smoke Area */}
+              <div className="mb-4">
+                <div className="flex justify-between text-xs mb-1">
+                  <span>Smoke Area</span>
+                  <span>{analysis.smokeArea.toFixed(1)}%</span>
+                </div>
+
+                <div className="h-3 bg-neutral-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-orange-500"
+                    style={{ width: `${analysis.smokeArea}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Intensity */}
+              <div className="mb-4">
+                <div className="flex justify-between text-xs mb-1">
+                  <span>Intensity</span>
+                  <span>{analysis.intensity.toFixed(1)}%</span>
+                </div>
+
+                <div className="h-3 bg-neutral-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-yellow-500"
+                    style={{ width: `${analysis.intensity}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* FSI */}
+              <div className="mb-5">
+                <div className="flex justify-between text-xs mb-1">
+                  <span>FSI</span>
+                  <span>{analysis.fsi.toFixed(1)}%</span>
+                </div>
+
+                <div className="h-3 bg-neutral-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-blue-500"
+                    style={{ width: `${analysis.fsi}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 border-t border-neutral-800 pt-4">
+
+                <div className="bg-neutral-900 rounded-lg p-3">
+                  <div className="text-xs text-neutral-500">
+                    Fire Growth
+                  </div>
+                  <div className="text-red-400 font-bold">
+                    {analysis.fireGrowth.toFixed(2)}
+                  </div>
+                </div>
+
+                <div className="bg-neutral-900 rounded-lg p-3">
+                  <div className="text-xs text-neutral-500">
+                    Smoke Growth
+                  </div>
+                  <div className="text-orange-400 font-bold">
+                    {analysis.smokeGrowth.toFixed(2)}
+                  </div>
+                </div>
+
+                <div className="bg-neutral-900 rounded-lg p-3">
+                  <div className="text-xs text-neutral-500">
+                    Duration
+                  </div>
+                  <div className="font-bold">
+                    {analysis.duration}s
+                  </div>
+                </div>
+
+                <div className="bg-neutral-900 rounded-lg p-3">
+                  <div className="text-xs text-neutral-500">
+                    Intensity
+                  </div>
+                  <div className="font-bold">
+                    {analysis.intensity.toFixed(1)}
+                  </div>
+                </div>
+
+              </div>
+
+              <div className="mt-4">
+                <div
+                  className={`text-center py-3 rounded-lg font-black text-xl
+                  ${
+                  analysis.risk === "SAFE"
+                  ? "bg-green-950 border border-green-700 text-green-400"
+                  : analysis.risk === "MEDIUM"
+                  ? "bg-yellow-950 border border-yellow-700 text-yellow-400"
+                  : analysis.risk === "HIGH"
+                  ? "bg-orange-950 border border-orange-700 text-orange-400"
+                  : "bg-red-950 border border-red-700 text-red-400 animate-pulse"
+                  }`}
+                  >
+                  RISK: {analysis.risk}
+                </div>
+              </div>
+
+            </div>
           </div>
 
 
