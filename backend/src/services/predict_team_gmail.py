@@ -97,80 +97,81 @@ def send_gmail_alert_to_team(service, time_str, image_path):
 # =========================================================================
 # 2. KHỞI TẠO AI VÀ LUỒNG CAMERA RTSP
 # =========================================================================
-print("🔐 Đang xác thực dịch vụ Google API...")
-gmail_service = get_gmail_service()
+if __name__ == '__main__':
+    print("🔐 Đang xác thực dịch vụ Google API...")
+    gmail_service = get_gmail_service()
 
-model = YOLO("fire_smoke_model/best.pt")
-VIDEO_PATH = r"vid2.mp4"
-cap = cv2.VideoCapture(VIDEO_PATH)
+    model = YOLO("fire_smoke_model/best.pt")
+    VIDEO_PATH = r"vid2.mp4"
+    cap = cv2.VideoCapture(VIDEO_PATH)
 
-if cap.isOpened():
-    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    if cap.isOpened():
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-fire_frame_counter = 0
-FRAME_THRESHOLD = 5 
-last_alert_time = 0
-ALERT_COOLDOWN = 10   # Giãn cách 90 giây giữa các lần gửi mail để tránh spam
+    fire_frame_counter = 0
+    FRAME_THRESHOLD = 5 
+    last_alert_time = 0
+    ALERT_COOLDOWN = 10   # Giãn cách 90 giây giữa các lần gửi mail để tránh spam
 
-if not cap.isOpened():
-    print(f"❌ Không thể kết nối tới nguồn video/camera.")
-    exit()
+    if not cap.isOpened():
+        print(f"❌ Không thể kết nối tới nguồn video/camera.")
+        exit()
 
-print("🌐 Hệ thống AI bắt đầu giám sát và sẵn sàng gửi Email cảnh báo...")
+    print("🌐 Hệ thống AI bắt đầu giám sát và sẵn sàng gửi Email cảnh báo...")
 
-while cap.isOpened():
-    success, frame = cap.read()
-    if not success:
-        # Nếu là video file, hết video thì thoát vòng lặp
-        break
-
-    results = model(frame, conf=0.45, verbose=False)
-    annotated_frame = results[0].plot()
-    
-    is_danger_detected = False
-    for box in results[0].boxes:
-        label = model.names[int(box.cls[0])]
-        if label in ['fire', 'smoke']:
-            is_danger_detected = True
+    while cap.isOpened():
+        success, frame = cap.read()
+        if not success:
+            # Nếu là video file, hết video thì thoát vòng lặp
             break
-            
-    if is_danger_detected:
-        fire_frame_counter += 1
-    else:
-        fire_frame_counter = max(0, fire_frame_counter - 1)
 
-    # KÍCH HOẠT XỬ LÝ KHI ĐẠT NGƯỠNG NGUY HIỂM
-    if fire_frame_counter >= FRAME_THRESHOLD:
-        current_time = time.time()
-        cv2.putText(annotated_frame, "!!! EMERGENCY: FIRE DETECTED !!!", (20, 50), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 3)
+        results = model(frame, conf=0.45, verbose=False)
+        annotated_frame = results[0].plot()
         
-        # KIỂM TRA THỜI GIAN COOLDOWN TRƯỚC KHI GỬI EMAIL VÀ BÁO ĐỘNG
-        if current_time - last_alert_time > ALERT_COOLDOWN:
-            string_now = time.strftime('%H:%M:%S - %d/%m/%Y')
-            image_name = f"fire_{int(current_time)}.jpg"
+        is_danger_detected = False
+        for box in results[0].boxes:
+            label = model.names[int(box.cls[0])]
+            if label in ['fire', 'smoke']:
+                is_danger_detected = True
+                break
+                
+        if is_danger_detected:
+            fire_frame_counter += 1
+        else:
+            fire_frame_counter = max(0, fire_frame_counter - 1)
 
-            # Lưu ảnh hiện trường sạch (hoặc dùng annotated_frame nếu muốn giữ box AI)
-            cv2.imwrite(image_name, frame)
+        # KÍCH HOẠT XỬ LÝ KHI ĐẠT NGƯỠNG NGUY HIỂM
+        if fire_frame_counter >= FRAME_THRESHOLD:
+            current_time = time.time()
+            cv2.putText(annotated_frame, "!!! EMERGENCY: FIRE DETECTED !!!", (20, 50), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 3)
+            
+            # KIỂM TRA THỜI GIAN COOLDOWN TRƯỚC KHI GỬI EMAIL VÀ BÁO ĐỘNG
+            if current_time - last_alert_time > ALERT_COOLDOWN:
+                string_now = time.strftime('%H:%M:%S - %d/%m/%Y')
+                image_name = f"fire_{int(current_time)}.jpg"
 
-            try:
-                playsound(r"mixkit-facility-alarm-sound-999.wav")
-            except Exception as e:
-                print("⚠ Không phát được âm thanh alarm.mp3:", e)
+                # Lưu ảnh hiện trường sạch (hoặc dùng annotated_frame nếu muốn giữ box AI)
+                cv2.imwrite(image_name, frame)
 
-            send_gmail_alert_to_team(gmail_service, string_now, image_name)
-            last_alert_time = current_time
+                try:
+                    playsound(r"mixkit-facility-alarm-sound-999.wav")
+                except Exception as e:
+                    print("⚠ Không phát được âm thanh alarm.mp3:", e)
 
-    # Hiển thị mức độ nguy hiểm hiện tại lên màn hình
-    cv2.putText(annotated_frame, f"Risk Level: {fire_frame_counter}/{FRAME_THRESHOLD}", (20, 90), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+                send_gmail_alert_to_team(gmail_service, string_now, image_name)
+                last_alert_time = current_time
 
-    # Thu nhỏ màn hình hiển thị camera về 640x480 để mượt hơn
-    resized_frame = cv2.resize(annotated_frame, (640, 480))
-    cv2.imshow("RTSP Team Monitor - Gmail API Integrated", resized_frame)
+        # Hiển thị mức độ nguy hiểm hiện tại lên màn hình
+        cv2.putText(annotated_frame, f"Risk Level: {fire_frame_counter}/{FRAME_THRESHOLD}", (20, 90), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+        # Thu nhỏ màn hình hiển thị camera về 640x480 để mượt hơn
+        resized_frame = cv2.resize(annotated_frame, (640, 480))
+        cv2.imshow("RTSP Team Monitor - Gmail API Integrated", resized_frame)
 
-cap.release()
-cv2.destroyAllWindows()
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()

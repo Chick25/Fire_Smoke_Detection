@@ -10,7 +10,7 @@ from ultralytics import YOLO
 model = YOLO("fire_smoke_model/best.pt")
 
 # 2. Chuỗi RTSP kết nối trực tiếp đến camera Dahua/Imou thực tế của bạn
-#RTSP_URL = "rtsp://admin:L28DF769@192.168.1.119:554/cam/realmonitor?channel=1&subtype=0"
+RTSP_URL = "rtsp://admin:L28DF769@192.168.1.119:554/cam/realmonitor?channel=1&subtype=0"
 
 # Cấu hình mở rộng CAP_FFMPEG và giảm tối đa kích thước buffer của luồng stream mạng để triệt tiêu delay
 cap = cv2.VideoCapture(0)
