@@ -4,6 +4,7 @@ import cv2
 import time
 import os  # Thêm thư viện os để kiểm tra đường dẫn file
 import threading  # ĐÃ THAY THẾ: Dùng thư viện luồng chuẩn của Python thay cho eventlet
+import requests
 from flask import Flask, request, jsonify  
 from flask_socketio import SocketIO
 from flask_cors import CORS
@@ -27,6 +28,8 @@ model = YOLO(MODEL_PATH)
 
 print("🔐 Đang xác thực dịch vụ Google API OAuth2...")
 gmail_service = get_gmail_service()
+
+EMERGENCY_PHONES = ["0823679193", "0773616537", "0795577525"]
 
 def get_metrics(frame, fire_boxes, smoke_boxes, prev_fire_area):
     H, W = frame.shape[:2]
@@ -147,6 +150,30 @@ video_speed_delay = 0.04  # Delay mặc định ban đầu cho tốc độ x1
 # Định nghĩa thư mục lưu video
 UPLOAD_FOLDER = 'media'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# --- THÊM HÀM NÀY VÀO TRƯỚC @app.route('/upload') ---
+def send_sms_simulation(phone_number, message):
+    """Hàm gửi SMS giả lập qua Webhook kết hợp in Console của Tuấn"""
+    print("\n================================================")
+    print("📱 SMS CẢNH BÁO KHẨN CẤP")
+    print(f"📞 Người nhận : {phone_number}")
+    print(f"🕒 Thời gian  : {time.strftime('%H:%M:%S %d/%m/%Y')}")
+    print(f"📩 Nội dung   : {message}")
+    print("================================================\n")
+    try:
+        requests.post(
+            "https://webhook.site/239cd0e6-cde7-4e22-9951-601ee61d6084",
+            json={
+                "phone": phone_number,
+                "message": message,
+                "time": time.strftime('%H:%M:%S %d/%m/%Y')
+            },
+            timeout=5
+        )
+        print(f"✅ Đã gửi webhook thành công cho số {phone_number}")
+    except Exception as e:
+        print(f"❌ Lỗi gửi webhook tới số {phone_number}: {e}")
+
 
 @app.route('/upload', methods=['POST'])
 def upload_video():
@@ -352,6 +379,23 @@ def generate_frames():
                             send_gmail_alert_to_team(gmail_service, string_now, image_name)
                         except Exception as e:
                             print("❌ Lỗi luồng gọi hàm send_gmail_alert_to_team:", e)
+
+                    try:
+                        # Định dạng lại nội dung tin nhắn có dấu thời gian giống như commit của Tuấn
+                        alert_message_sms = f"CẢNH BÁO HỎA HOẠN! Phát hiện {detected_type.upper()} tại khu dân cư lúc {time.strftime('%H:%M:%S %d/%m/%Y')}"
+                        
+                        # Duyệt gửi cho từng số điện thoại
+                        for phone in EMERGENCY_PHONES:
+                            send_sms_simulation(phone, alert_message_sms)
+                        
+                        # Bắn thông báo trạng thái SMS đã gửi về giao diện Front-End
+                        socketio.emit('sms_sent', {
+                            'phones': EMERGENCY_PHONES,
+                            'message': alert_message_sms
+                        })
+                    except Exception as e:
+                        print("❌ Lỗi luồng xử lý SMS giả lập:", e)
+
                     else:
                         print("⚠️ Dịch vụ Gmail chưa được cấu hình hoặc xác thực thành công.")
 
