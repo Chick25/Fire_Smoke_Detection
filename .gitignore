@@ -38,7 +38,7 @@ backend/media/*.zip
 
 # Ngoại lệ: Giữ lại duy nhất file vid2.mp4 trong thư mục media phục vụ demo nhóm
 !backend/media/vid2.mp4
-
+backend/src/services/send_sms.py
 # Chặn file ảnh rác nằm ở thư mục gốc (nếu có)
 pic1.jpg
 vid1.mp4
@@ -58,3 +58,16 @@ credentials.json
 backend/token.json
 backend/credentials.json
 .env
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Media & Heavy Files
+backend/media/*.mp4
+backend/media/*.avi
+backend/media/*.jpg
+backend/media/*.png
+
+# Chặn file nháp cá nhân (nếu cần)
+app_flask.py
