@@ -50,6 +50,14 @@ cd frontend
 npm install
 ```
 
+## 📦 Test Media (Sample Videos for Testing)
+
+Due to GitHub's file size limits, the `.mp4` video files used for fire detection testing cannot be uploaded directly to the source code.
+
+1. Access this Google Drive link to download the test videos: [https://drive.google.com/drive/folders/1Ahss7h3gB7LgQrbUMtYr5wMY430kz-fk]
+2. Download the video files and place them in the `media/` folder within the project’s root directory.
+3. Configure the video path in the `main.py` file to point to the downloaded files to run the system.
+
 ## 🚦 Usage
 
 ### 1. Start the Backend
