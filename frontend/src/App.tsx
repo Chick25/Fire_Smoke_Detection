@@ -99,23 +99,42 @@ function App() {
         message: data.message,
       };
 
-      setAlerts((prev) => {
-        const updatedAlerts = [newAlert, ...prev];
+      // setAlerts((prev) => {
+      //   const updatedAlerts = [newAlert, ...prev];
+      setAlerts((prev) => [newAlert, ...prev]);
+      setCaseCount((current) => {
+        if (current === 0) return 1;
 
-        setCaseCount((current) => {
-          if (current === 0 || prev.length === 0) return current + 1;
-          const timeParts = prev[0].time.split(':');
+        // Dùng luôn biến trạng thái alerts để so sánh thời gian chính xác
+        if (alerts.length > 0) {
+          const lastAlert = alerts[0];
+          const timeParts = lastAlert.time.split(':');
           const lastAlertTime = new Date();
           lastAlertTime.setHours(
             parseInt(timeParts[0], 10),
             parseInt(timeParts[1], 10),
             parseInt(timeParts[2], 10)
           );
+
           const diffMinutes = (now.getTime() - lastAlertTime.getTime()) / 1000 / 60;
           return diffMinutes > 2 ? current + 1 : current;
-        });
+        }
+        // setCaseCount((current) => {
+        //   if (current === 0 || prev.length === 0) return current + 1;
+        //   const timeParts = prev[0].time.split(':');
+        //   const lastAlertTime = new Date();
+        //   lastAlertTime.setHours(
+        //     parseInt(timeParts[0], 10),
+        //     parseInt(timeParts[1], 10),
+        //     parseInt(timeParts[2], 10)
+        //   );
+        //   const diffMinutes = (now.getTime() - lastAlertTime.getTime()) / 1000 / 60;
+        //   return diffMinutes > 2 ? current + 1 : current;
+        // });
 
-        return updatedAlerts;
+        
+        // return updatedAlerts;
+        return current + 1;
       });
     });
 

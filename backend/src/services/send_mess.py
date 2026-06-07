@@ -18,10 +18,10 @@ def send_messenger_alert_to_all(message_text):
     
     for psid in LIST_USER_PSID:
         payload = {
-            "recipient": {"id": psid},
+            "recipient": {"id": str(psid).strip()},
             "message": {"text": message_text},
-            "messaging_type": "MESSAGE_TAG",
-            "tag": "ACCOUNT_UPDATE"
+            # "messaging_type": "MESSAGE_TAG",
+            # "tag": "CONFIRMED_EVENT_UPDATE"
         }
         try:
             response = requests.post(url, json=payload, timeout=5)

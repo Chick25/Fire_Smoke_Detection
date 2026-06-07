@@ -192,8 +192,10 @@ def upload_video():
         print(f"📥 [SERVER] Đã nhận và lưu file thành công: {file_path}")
         return jsonify({'message': 'Upload thành công', 'filename': filename}), 200
 
+# has_notified_this_session = False
 
 def generate_frames():
+    has_notified_this_session = False
     global is_streaming, current_video_source, video_speed_delay, thread_active
     
     thread_active = True
@@ -219,13 +221,18 @@ def generate_frames():
 
     frame_count = 0
 
+    # has_notified_this_session = False
+
     while is_streaming and cap.isOpened():
         frame_count += 1
 
         success, frame = cap.read()
         if not success:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-            continue
+            # cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            # continue
+            print("🎬 [HỆ THỐNG] Đã chạy hết file video test. Tự động dừng luồng.")
+            is_streaming = False  # Đổi trạng thái để thoát vòng lặp while
+            break
 
         # 1. CHẠY AI TRÊN MỌI KHUNG HÌNH - HẠ CONF XUỐNG 0.25 ĐỂ KHÔNG BỊ NUỐT BOX
         # Ngưỡng conf=0.25 và iou=0.5 là tỷ lệ vàng giúp giữ ô vuông cực kỳ bền vững, không nhấp nháy
@@ -349,9 +356,80 @@ def generate_frames():
         socketio.emit('analysis_update', analysis_data)
 
         # 5. LOGIC PHÁT CẢNH BÁO NGOẠI VI (new_alert, Messenger...)
+        # if fire_frame_counter >= FRAME_THRESHOLD:
+        #     current_time = time.time()
+        #     if current_time - last_alert_time > ALERT_COOLDOWN:
+        #         socketio.emit('new_alert', {
+        #             'type': detected_type,
+        #             'message': f"Cảnh báo nguy hiểm! Phát hiện đám {'LỬA' if detected_type == 'fire' else 'KHÓI'} lớn xuất hiện tại Khu dân cư!"
+        #         })
+                
+        #         alert_msg = f"🚨 [CẢNH BÁO NGUY HIỂM] Phát hiện {'LỬA' if detected_type == 'fire' else 'KHÓI'} tại khu vực camera giám sát vào lúc: {time.strftime('%H:%M:%S')}"
+        #         string_now = time.strftime('%H:%M:%S - %d/%m/%Y')
+        #         image_name = f"fire_{int(current_time)}.jpg"
+                
+        #         cv2.imwrite(image_name, frame)
+
+        #         # Hàm xử lý chạy ngầm cảnh báo
+        #         def send_async_alerts():
+        #             global gmail_service # Khai báo global giúp loại bỏ hoàn toàn lỗi NameError
+                    
+        #             # 1. Gửi tin nhắn tới Messenger nhóm công việc
+        #             try:
+        #                 send_messenger_alert_to_all(alert_msg)
+        #             except Exception as e:
+        #                 print("❌ Lỗi luồng gửi Messenger:", e)
+                    
+        #             # 2. Gửi email cảnh báo qua Gmail API kèm ảnh hiện trường vừa lưu
+        #             if gmail_service:
+        #                 try:
+        #                     send_gmail_alert_to_team(gmail_service, string_now, image_name)
+        #                 except Exception as e:
+        #                     print("❌ Lỗi luồng gọi hàm send_gmail_alert_to_team:", e)
+        #             else:
+        #                 print("⚠️ Dịch vụ Gmail chưa được cấu hình hoặc xác thực thành công.")
+
+        #             try:
+        #                 # Định dạng lại nội dung tin nhắn có dấu thời gian giống như commit của Tuấn
+        #                 alert_message_sms = f"CẢNH BÁO HỎA HOẠN! Phát hiện {detected_type.upper()} tại khu dân cư lúc {time.strftime('%H:%M:%S %d/%m/%Y')}"
+                        
+        #                 # Duyệt gửi cho từng số điện thoại
+        #                 for phone in EMERGENCY_PHONES:
+        #                     send_sms_simulation(phone, alert_message_sms)
+                        
+        #                 # Bắn thông báo trạng thái SMS đã gửi về giao diện Front-End
+        #                 socketio.emit('sms_sent', {
+        #                     'phones': EMERGENCY_PHONES,
+        #                     'message': alert_message_sms
+        #                 })
+        #             except Exception as e:
+        #                 print("❌ Lỗi luồng xử lý SMS giả lập:", e)
+
+        #             # else:
+        #             #     print("⚠️ Dịch vụ Gmail chưa được cấu hình hoặc xác thực thành công.")
+
+        #         # Kích hoạt tiểu luồng chạy nền (Giữ nguyên cấu trúc Thread cũ của bạn)
+        #         alert_thread = threading.Thread(target=send_async_alerts)
+        #         alert_thread.daemon = True
+        #         alert_thread.start()
+
+
+
+        #         # messenger_thread = threading.Thread(target=send_messenger_alert_to_all, args=(alert_msg,))
+        #         # messenger_thread.daemon = True
+        #         # messenger_thread.start()
+
+        #         last_alert_time = current_time
+
+        # 5. LOGIC PHÁT CẢNH BÁO NGOẠI VI (Đã sửa lỗi nuốt biến và lỗi khối else đặt sai vị trí)
         if fire_frame_counter >= FRAME_THRESHOLD:
             current_time = time.time()
-            if current_time - last_alert_time > ALERT_COOLDOWN:
+
+            if not has_notified_this_session:
+                # Kích hoạt khóa cờ hiệu lập tức để các frame sau không lọt vào đây được nữa
+                has_notified_this_session = True
+                last_alert_time = current_time
+
                 socketio.emit('new_alert', {
                     'type': detected_type,
                     'message': f"Cảnh báo nguy hiểm! Phát hiện đám {'LỬA' if detected_type == 'fire' else 'KHÓI'} lớn xuất hiện tại Khu dân cư!"
@@ -363,26 +441,32 @@ def generate_frames():
                 
                 cv2.imwrite(image_name, frame)
 
-                # Hàm xử lý chạy ngầm cảnh báo
-                def send_async_alerts():
+                # Định nghĩa hàm xử lý chạy ngầm cảnh báo (Bắt giữ giá trị biến tại thời điểm cháy)
+                def send_async_alerts(msg=alert_msg, time_str=string_now, img=image_name, det_type=detected_type):
                     global gmail_service # Khai báo global giúp loại bỏ hoàn toàn lỗi NameError
                     
+                    print(f"🔄 [TIỂU LUỒNG] Đang tiến hành kích hoạt các kênh cảnh báo ngoại vi...")
+
                     # 1. Gửi tin nhắn tới Messenger nhóm công việc
                     try:
-                        send_messenger_alert_to_all(alert_msg)
+                        send_messenger_alert_to_all(msg)
+                        print("✅ [MESSENGER] Đã gọi hàm gửi Messenger thành công.")
                     except Exception as e:
                         print("❌ Lỗi luồng gửi Messenger:", e)
                     
                     # 2. Gửi email cảnh báo qua Gmail API kèm ảnh hiện trường vừa lưu
                     if gmail_service:
                         try:
-                            send_gmail_alert_to_team(gmail_service, string_now, image_name)
+                            send_gmail_alert_to_team(gmail_service, time_str, img)
+                            print("✅ [GMAIL] Đã gọi hàm gửi Gmail thành công.")
                         except Exception as e:
                             print("❌ Lỗi luồng gọi hàm send_gmail_alert_to_team:", e)
+                    else:
+                        print("⚠️ Dịch vụ Gmail chưa được cấu hình hoặc xác thực thành công.")
 
+                    # 3. Gửi SMS giả lập
                     try:
-                        # Định dạng lại nội dung tin nhắn có dấu thời gian giống như commit của Tuấn
-                        alert_message_sms = f"CẢNH BÁO HỎA HOẠN! Phát hiện {detected_type.upper()} tại khu dân cư lúc {time.strftime('%H:%M:%S %d/%m/%Y')}"
+                        alert_message_sms = f"CẢNH BÁO HỎA HOẠN! Phát hiện {det_type.upper()} tại khu dân cư lúc {time.strftime('%H:%M:%S %d/%m/%Y')}"
                         
                         # Duyệt gửi cho từng số điện thoại
                         for phone in EMERGENCY_PHONES:
@@ -393,24 +477,24 @@ def generate_frames():
                             'phones': EMERGENCY_PHONES,
                             'message': alert_message_sms
                         })
+                        print("✅ [SMS] Đã gửi SMS giả lập thành công.")
                     except Exception as e:
                         print("❌ Lỗi luồng xử lý SMS giả lập:", e)
 
-                    else:
-                        print("⚠️ Dịch vụ Gmail chưa được cấu hình hoặc xác thực thành công.")
-
-                # Kích hoạt tiểu luồng chạy nền (Giữ nguyên cấu trúc Thread cũ của bạn)
+                # Kích hoạt tiểu luồng chạy nền sạch sẽ
                 alert_thread = threading.Thread(target=send_async_alerts)
                 alert_thread.daemon = True
                 alert_thread.start()
 
-
-
-                # messenger_thread = threading.Thread(target=send_messenger_alert_to_all, args=(alert_msg,))
-                # messenger_thread.daemon = True
-                # messenger_thread.start()
-
                 last_alert_time = current_time
+
+        # 6. ĐIỀU TỐC CỐ ĐỊNH THEO CẤU HÌNH CŨ CỦA BẠN
+        # time.sleep(video_speed_delay)    
+        else:
+            # Nếu số frame không có lửa giảm về 0 (An toàn hoàn toàn)
+            if fire_frame_counter == 0 and has_notified_this_session:
+                print("🔥 [HỆ THỐNG] Khu vực đã an toàn. Reset cờ hiệu sẵn sàng cho vụ hỏa hoạn tiếp theo.")
+                has_notified_this_session = False # Chỉ mở khóa ở đây khi camera không còn thấy lửa nữa
 
         # 6. ĐIỀU TỐC CỐ ĐỊNH THEO CẤU HÌNH CŨ CỦA BẠN
         # Sử dụng đúng biến video_speed_delay để bạn kiểm soát tốc độ qua giao diện web
